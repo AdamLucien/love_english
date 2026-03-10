@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Fields: uid, email, role, displayName
+    //
+    // Collection: vocabulary
+    // Fields: word, translation, category, example, level
+    //
+    // Collection: testResults
+    // Fields: studentUid, testType, score, total, timestamp
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.email == "dragon.systems.venture@gmail.com" || 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function isStudent() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student' ||
+         request.auth.token.email == "vika.mat@seznam.cz");
+    }
+
+    // Validation Functions
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'email', 'role', 'displayName']) &&
+             data.uid is string && data.email is string &&
+             data.role in ['admin', 'student'];
+    }
+
+    function isValidVocabulary(data) {
+      return data.keys().hasAll(['word', 'translation']) &&
+             data.word is string && data.word.size() > 0 && data.word.size() < 200 &&
+             data.translation is string && data.translation.size() > 0 &&
+             (!('category' in data) || data.category is string) &&
+             (!('example' in data) || data.example is string) &&
+             (!('level' in data) || data.level is string);
+    }
+
+    function isValidTestResult(data) {
+      return data.keys().hasOnly(['studentUid', 'testType', 'score', 'total', 'timestamp']) &&
+             data.studentUid == request.auth.uid &&
+             data.score is int && data.total is int &&
+             data.timestamp is string; // Using string for simplicity in rules, but ideally timestamp
+    }
+
+    function isValidGrammarTest(data) {
+      return data.keys().hasAll(['title', 'questions', 'createdAt']) &&
+             data.title is string && data.questions is list &&
+             data.createdAt is string;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create, update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                             ((isOwner(userId) && request.resource.data.role == (resource == null ? 'student' : resource.data.role)) || isAdmin());
+    }
+
+    match /vocabulary/{wordId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidVocabulary(request.resource.data);
+    }
+
+    match /testResults/{resultId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.studentUid || isAdmin());
+      allow create: if isAuthenticated() && isValidTestResult(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /grammarTests/{testId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidGrammarTest(request.resource.data);
+    }
+    
+    match /test/{docId} {
+      allow read: if true; // For connection test
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and role information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "student"] },
+        "displayName": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Vocabulary": {
+      "title": "Vocabulary",
+      "description": "English vocabulary words with translations and categories",
+      "type": "object",
+      "properties": {
+        "word": { "type": "string" },
+        "translation": { "type": "string" },
+        "category": { "type": "string", "enum": ["Family", "Food", "House", "Work", "Nature"] },
+        "example": { "type": "string" },
+        "level": { "type": "string" }
+      },
+      "required": ["word", "translation", "category"]
+    },
+    "TestResult": {
+      "title": "TestResult",
+      "description": "Results of tests taken by students",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string" },
+        "testType": { "type": "string" },
+        "score": { "type": "integer" },
+        "total": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "testType", "score", "total", "timestamp"]
+    },
+    "GrammarTest": {
+      "title": "GrammarTest",
+      "description": "AI generated grammar tests",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "level": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": { "type": "string" },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "correctAnswer": { "type": "string" },
+              "explanation": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "questions", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/vocabulary/{wordId}": {
+      "schema": "Vocabulary",
+      "description": "Vocabulary database"
+    },
+    "/testResults/{resultId}": {
+      "schema": "TestResult",
+      "description": "Student test performance"
+    },
+    "/grammarTests/{testId}": {
+      "schema": "GrammarTest",
+      "description": "Collection of grammar tests"
+    }
+  }
+}

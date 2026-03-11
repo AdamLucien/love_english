@@ -8,6 +8,8 @@ import { addDoc, collection, db, doc, getDoc, limit, onSnapshot, orderBy, query,
 import { UnitPlayer } from './UnitPlayer';
 
 const FLOWER_BY_LEVEL: Record<string, string> = {
+  A1: '🌱',
+  A2: '📗',
   A3: '🌸',
   B1: '🌻',
   B2: '🌹',
@@ -63,7 +65,7 @@ export function Cockpit({
   const [mode, setMode] = useState<'briefing' | 'mission'>('briefing');
 
   const grouped = useMemo(() => {
-    const levels = ['A3', 'B1', 'B2', 'C1'] as const;
+    const levels = ['A1', 'A2', 'A3', 'B1', 'B2', 'C1'] as const;
     return levels.map((lvl) => ({
       level: lvl,
       units: ROADMAP.filter((u) => u.level === lvl),
@@ -170,7 +172,7 @@ export function Cockpit({
             <p className="text-lg font-bold text-gray-900">Briefing & Mise</p>
           </div>
           <div className="text-right text-xs text-gray-500">
-            Úroveň: <span className="font-bold text-pink-600">{stats?.level ?? 'A2'}</span>
+            Úroveň: <span className="font-bold text-pink-600">{stats?.level ?? 'A1'}</span>
           </div>
         </div>
 
@@ -243,7 +245,7 @@ export function Cockpit({
                             const flowerGain = Math.floor(nextSeeds / 5) - Math.floor((stats?.seeds ?? 0) / 5);
                             const nextFlowers = (stats?.flowers ?? 0) + Math.max(0, flowerGain);
                             const nextLevel = computeLevelFromMastery({
-                              ...(stats ?? { uid: user.uid, seeds: 0, flowers: 0, level: 'A2', updatedAt: '' }),
+                              ...(stats ?? { uid: user.uid, seeds: 0, flowers: 0, level: 'A1', updatedAt: '' }),
                               mastery: nextMasteryMap,
                             } as any);
 

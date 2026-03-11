@@ -2,6 +2,8 @@ import React from 'react';
 import type { UserStats } from '../types';
 
 const FLOWER_MAP: Record<string, string> = {
+  A1: '🌱',
+  A2: '📗',
   A3: '🌸',
   B1: '🌻',
   B2: '🌹',

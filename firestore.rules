@@ -74,25 +74,28 @@ service cloud.firestore {
     }
 
     function isValidStats(data) {
-      // Keep this permissive enough for evolution, but still safe.
-      return data.keys().hasAll(['uid', 'seeds', 'flowers', 'level', 'updatedAt']) &&
-             data.uid is string &&
-             data.seeds is int && data.seeds >= 0 &&
-             data.flowers is int && data.flowers >= 0 &&
-             data.level is string &&
-             data.updatedAt is string &&
+      // Permissive - allow partial updates (merge:true) and new fields
+      return (!('uid' in data) || data.uid is string) &&
+             (!('seeds' in data) || (data.seeds is int && data.seeds >= 0)) &&
+             (!('flowers' in data) || (data.flowers is int && data.flowers >= 0)) &&
+             (!('level' in data) || data.level is string) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
              (!('mastery' in data) || data.mastery is map);
     }
 
     function isValidUnitContent(data) {
-      return data.keys().hasAll(['unitId', 'level', 'title', 'topics', 'contextText', 'grammarExplanation', 'testSuite', 'createdAt']) &&
+      // Just require the key fields, allow extra AI-generated fields
+      return data.keys().hasAll(['unitId', 'level', 'title', 'createdAt']) &&
              data.unitId is string &&
              data.level is string &&
              data.title is string &&
-             data.topics is list &&
-             data.contextText is string &&
-             data.grammarExplanation is string &&
-             data.testSuite is list &&
+             data.createdAt is string;
+    }
+
+    function isValidLesson(data) {
+      return data.keys().hasAll(['topic', 'content', 'createdAt']) &&
+             data.topic is string &&
+             data.content is string &&
              data.createdAt is string;
     }
 
@@ -130,6 +133,12 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin() && isValidUnitContent(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidLesson(request.resource.data);
+      allow update, delete: if isAdmin();
     }
     
     match /test/{docId} {

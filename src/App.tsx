@@ -17,11 +17,13 @@ import {
   getDocs,
   handleFirestoreError,
   OperationType,
-  deleteDoc,
-  writeBatch
+  writeBatch,
+  orderBy,
+  deleteDoc
 } from './firebase';
 import { GoogleGenAI, Type } from "@google/genai";
-import { UserProfile, UserRole, VocabularyWord, TestResult, VocabCategory, GrammarTest, GrammarExercise } from './types';
+import { UserProfile, UserRole, VocabularyWord, TestResult, VocabCategory, GrammarTest, GrammarExercise, UserStats, VocabularyWordEnriched, UnitContentPack, AILesson } from './types';
+import { ROADMAP, type RoadmapUnitId, computeLevelFromMastery, getUnitMastery, isUnitUnlocked } from './roadmap';
 import { 
   BookOpen, 
   GraduationCap, 
@@ -44,12 +46,17 @@ import {
   Utensils,
   Flower,
   Heart,
-  Sparkles
+  Sparkles,
+  Lock,
+  MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import Markdown from 'react-markdown';
+import { GardenDisplay } from './components/GardenDisplay';
+import { UnitPlayer } from './components/UnitPlayer';
+import { Cockpit } from './components/Cockpit';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -58,11 +65,85 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function normalizeWord(w: string) {
+  return w.trim().toLowerCase();
+}
+
+function safeJsonParse<T = any>(text: string): { ok: true; data: T } | { ok: false; error: string } {
+  try {
+    return { ok: true, data: JSON.parse(text) as T };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function isValidGeneratedGrammarTest(x: any): x is { title: string; description?: string; questions: any[] } {
+  if (!x || typeof x !== 'object') return false;
+  if (typeof x.title !== 'string' || !Array.isArray(x.questions)) return false;
+  for (const q of x.questions) {
+    if (!q || typeof q !== 'object') return false;
+    if (typeof q.question !== 'string') return false;
+    if (!Array.isArray(q.options) || q.options.some((o: any) => typeof o !== 'string')) return false;
+    if (typeof q.correctAnswer !== 'string') return false;
+    if (q.explanation != null && typeof q.explanation !== 'string') return false;
+  }
+  return true;
+}
+
+function isValidUnitContentPack(x: any): x is UnitContentPack {
+  if (!x || typeof x !== 'object') return false;
+  if (typeof x.unitId !== 'string') return false;
+  if (typeof x.level !== 'string') return false;
+  if (typeof x.title !== 'string') return false;
+  if (!Array.isArray(x.topics) || x.topics.some((t: any) => typeof t !== 'string')) return false;
+  if (typeof x.contextText !== 'string') return false;
+  if (typeof x.grammarExplanation !== 'string') return false;
+  if (!Array.isArray(x.testSuite) || x.testSuite.length < 5) return false;
+  for (const q of x.testSuite) {
+    if (!q || typeof q !== 'object') return false;
+    if (typeof q.question !== 'string') return false;
+    if (!Array.isArray(q.options) || q.options.some((o: any) => typeof o !== 'string')) return false;
+    if (typeof q.correctAnswer !== 'string') return false;
+    if (typeof q.explanation !== 'string') return false;
+  }
+  if (typeof x.createdAt !== 'string') return false;
+  return true;
+}
+
+function masteryFromResults(results: TestResult[]): number {
+  if (!results.length) return 0;
+  const recent = results
+    .slice()
+    .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+    .slice(0, 8);
+  const ratios = recent.map(r => (r.total > 0 ? r.score / r.total : 0));
+  const avg = ratios.reduce((s, v) => s + v, 0) / ratios.length;
+  return Math.max(0, Math.min(1, avg));
+}
+
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function updateMastery(prev: number, latest: number) {
+  // Exponential moving average: stable but reactive
+  const next = prev * 0.7 + latest * 0.3;
+  return clamp01(next);
+}
+
+function seedsFromRatio(ratio: number) {
+  // 1..5 seeds
+  return Math.max(1, Math.min(5, Math.round(5 * clamp01(ratio))));
+}
+
 // --- Context ---
 interface AuthContextType {
   user: UserProfile | null;
+  stats: UserStats | null;
   loading: boolean;
-  login: () => Promise<void>;
+  loginGoogle: () => Promise<void>;
+  loginStudent: () => Promise<void>;
+  loginAdmin: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -115,6 +196,7 @@ const Card = ({ children, className, onClick }: { children: React.ReactNode; cla
 // --- Modules ---
 
 const VocabularyModule = () => {
+  const { user } = useAuth();
   const [words, setWords] = useState<VocabularyWord[]>([]);
   const [filter, setFilter] = useState<VocabCategory | 'All'>('All');
   const [search, setSearch] = useState('');
@@ -193,10 +275,23 @@ const VocabularyModule = () => {
         {filteredWords.map(word => (
           <Card 
             key={word.id} 
-            className="hover:shadow-md transition-shadow group cursor-pointer border-pink-50 hover:border-pink-200"
+            className="hover:shadow-md transition-shadow group cursor-pointer border-pink-50 hover:border-pink-200 relative"
             onClick={() => setSelectedWord(word)}
           >
-            <div className="flex justify-between items-start mb-2">
+            {user?.role === 'admin' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm(`Opravdu smazat slovíčko "${word.word}"?`)) {
+                    deleteDoc(doc(db, 'vocabulary', word.id!));
+                  }
+                }}
+                className="absolute top-4 right-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            )}
+            <div className="flex justify-between items-start mb-2 mr-6">
               <span className="text-xs font-bold text-pink-600 uppercase tracking-wider bg-pink-50 px-2 py-1 rounded">
                 {categoryMap[word.category] || word.category}
               </span>
@@ -229,6 +324,7 @@ const VocabularyModule = () => {
 const GrammarModule = () => {
   const [view, setView] = useState<'practice' | 'ai-tests'>('practice');
   const [activeTab, setActiveTab] = useState<'be-have' | 'do-does' | 'modals' | 'state-dynamic'>('be-have');
+  const { stats, user } = useAuth();
 
   const exercises = {
     'be-have': [
@@ -287,6 +383,7 @@ const GrammarModule = () => {
 
   return (
     <div className="space-y-6">
+      {user && <Cockpit user={user} stats={stats} />}
       <div className="flex gap-6 border-b border-black/5">
         <button 
           onClick={() => setView('practice')}
@@ -468,9 +565,34 @@ const LessonGenerator = () => {
         </Button>
       </div>
       {lesson && (
-        <div className="mt-6 p-6 bg-gray-50 rounded-2xl border border-gray-100">
+        <div className="mt-6 p-6 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
           <div className="markdown-body">
             <Markdown>{lesson}</Markdown>
+          </div>
+          <div className="flex justify-end pt-4 border-t border-gray-200">
+            <Button
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  await addDoc(collection(db, 'lessons'), {
+                    topic,
+                    content: lesson,
+                    createdAt: new Date().toISOString()
+                  });
+                  alert('Lekce byla uložena do databáze!');
+                  setLesson('');
+                  setTopic('');
+                } catch (e) {
+                  alert('Chyba při ukládání lekce.');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="bg-pink-600 hover:bg-pink-700 text-white"
+            >
+              Uložit lekci do databáze
+            </Button>
           </div>
         </div>
       )}
@@ -482,6 +604,7 @@ const LessonGenerator = () => {
 const GrammarTestGenerator = () => {
   const [topic, setTopic] = useState('');
   const [level, setLevel] = useState('A2');
+  const [unitId, setUnitId] = useState<RoadmapUnitId>('a3-past-simple-vs-continuous');
   const [loading, setLoading] = useState(false);
   const [generatedTest, setGeneratedTest] = useState<GrammarTest | null>(null);
 
@@ -495,7 +618,8 @@ const GrammarTestGenerator = () => {
         contents: `Generate a grammar test for level ${level} on topic: ${topic}. 
         Return 5 multiple choice questions. 
         Each question must have 4 options and one correct answer.
-        Provide a short explanation for each correct answer.`,
+        Provide a short explanation for each correct answer.
+        Explanations MUST be in Czech and friendly (for a girl named Viktorka).`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -522,8 +646,15 @@ const GrammarTestGenerator = () => {
         }
       });
 
-      const data = JSON.parse(response.text || '{}');
+      const parsed = safeJsonParse(response.text || '{}');
+      if (!parsed.ok || !isValidGeneratedGrammarTest(parsed.data)) {
+        console.error('Invalid AI JSON:', parsed.ok ? parsed.data : 'parse_error');
+        alert('AI vrátila neplatný JSON. Zkus to prosím znovu (nebo změň téma).');
+        return;
+      }
+      const data = parsed.data;
       const newTest: GrammarTest = {
+        roadmapUnitId: unitId,
         title: data.title || `Grammar: ${topic}`,
         description: data.description || `Test na téma ${topic}`,
         level: level,
@@ -589,6 +720,18 @@ const GrammarTestGenerator = () => {
             <option value="B2">B2 - Upper Intermediate</option>
           </select>
         </div>
+        <div className="space-y-2 md:col-span-2">
+          <label className="text-sm font-medium text-gray-700">Roadmap jednotka (kvůli zamykání)</label>
+          <select
+            className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+            value={unitId}
+            onChange={(e) => setUnitId(e.target.value as RoadmapUnitId)}
+          >
+            {ROADMAP.map(u => (
+              <option key={u.id} value={u.id}>{u.title} ({u.level})</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <Button 
@@ -639,7 +782,7 @@ const GrammarTestPlayer = ({ test, onComplete }: { test: GrammarTest; onComplete
   const [score, setScore] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
-  const { user } = useAuth();
+  const { user, stats } = useAuth();
 
   const handleAnswer = async (option: string) => {
     setSelected(option);
@@ -653,13 +796,40 @@ const GrammarTestPlayer = ({ test, onComplete }: { test: GrammarTest; onComplete
       } else {
         setShowResult(true);
         if (user) {
+          const finalScore = score + (isCorrect ? 1 : 0);
           await addDoc(collection(db, 'testResults'), {
             studentUid: user.uid,
             testType: `Grammar: ${test.title}`,
-            score: score + (isCorrect ? 1 : 0),
+            score: finalScore,
             total: test.questions.length,
             timestamp: new Date().toISOString()
           });
+
+          // Update mastery + garden rewards
+          const ratio = test.questions.length > 0 ? finalScore / test.questions.length : 0;
+          const earnedSeeds = seedsFromRatio(ratio);
+          const statsRef = doc(db, 'stats', user.uid);
+
+          const unit = (test.roadmapUnitId && typeof test.roadmapUnitId === 'string')
+            ? (test.roadmapUnitId as RoadmapUnitId)
+            : ('a3-past-simple-vs-continuous' as RoadmapUnitId);
+
+          const prevM = getUnitMastery(stats, unit);
+          const nextMasteryMap = { ...(stats?.mastery ?? {}), [unit]: updateMastery(prevM, ratio) };
+
+          const nextSeeds = (stats?.seeds ?? 0) + earnedSeeds;
+          const flowerGain = Math.floor(nextSeeds / 5) - Math.floor((stats?.seeds ?? 0) / 5);
+          const nextFlowers = (stats?.flowers ?? 0) + Math.max(0, flowerGain);
+          const nextLevel = computeLevelFromMastery({ ...(stats ?? { uid: user.uid, seeds: 0, flowers: 0, level: 'A2', updatedAt: '' }), mastery: nextMasteryMap } as any);
+
+          await setDoc(statsRef, {
+            uid: user.uid,
+            seeds: nextSeeds,
+            flowers: nextFlowers,
+            level: nextLevel,
+            mastery: nextMasteryMap,
+            updatedAt: new Date().toISOString()
+          } satisfies UserStats, { merge: true });
         }
       }
     }, 1500); // Longer delay to read explanation if needed
@@ -761,6 +931,7 @@ const GrammarTestList = () => {
   const [tests, setTests] = useState<GrammarTest[]>([]);
   const [selectedTest, setSelectedTest] = useState<GrammarTest | null>(null);
   const [loading, setLoading] = useState(true);
+  const { user, stats } = useAuth();
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'grammarTests'), (s) => {
@@ -791,13 +962,32 @@ const GrammarTestList = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {tests.map(test => (
-            <Card key={test.id} className="hover:border-indigo-300 transition-all cursor-pointer group" onClick={() => setSelectedTest(test)}>
+            (() => {
+              const unit = (test.roadmapUnitId && typeof test.roadmapUnitId === 'string')
+                ? (test.roadmapUnitId as RoadmapUnitId)
+                : null;
+              const unitDef = unit ? ROADMAP.find(u => u.id === unit) : null;
+              const unlocked = user?.role === 'admin' || !unitDef ? true : isUnitUnlocked(stats, unitDef);
+              return (
+                <Card
+                  key={test.id}
+                  className={cn(
+                    "transition-all group",
+                    unlocked ? "hover:border-indigo-300 cursor-pointer" : "opacity-70 bg-gray-50 border-gray-200"
+                  )}
+                  onClick={() => unlocked && setSelectedTest(test)}
+                >
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded uppercase tracking-wider">
                       {test.level}
                     </span>
+                    {unitDef && (
+                      <span className="px-2 py-0.5 bg-gray-50 text-gray-600 text-[10px] font-bold rounded uppercase tracking-wider">
+                        {unitDef.title}
+                      </span>
+                    )}
                     <span className="text-[10px] text-gray-400">
                       {new Date(test.createdAt).toLocaleDateString()}
                     </span>
@@ -806,10 +996,17 @@ const GrammarTestList = () => {
                   <p className="text-xs text-gray-500">{test.questions.length} otázek</p>
                 </div>
                 <div className="p-2 bg-gray-50 rounded-lg text-gray-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all">
-                  <ChevronRight className="w-5 h-5" />
+                  {unlocked ? <ChevronRight className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
                 </div>
               </div>
-            </Card>
+              {!unlocked && (
+                <p className="mt-3 text-xs text-gray-500">
+                  Nejdřív zvládni prerequisite jednotky na 85 % a test se odemkne.
+                </p>
+              )}
+                </Card>
+              );
+            })()
           ))}
         </div>
       )}
@@ -822,6 +1019,8 @@ const AdminDashboard = () => {
   const [importText, setImportText] = useState('');
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ words: 0, tests: 0, successfulTests: 0, students: 0 });
+  const [fillBusy, setFillBusy] = useState(false);
+  const [fillLog, setFillLog] = useState<string[]>([]);
 
   useEffect(() => {
     const unsubWords = onSnapshot(collection(db, 'vocabulary'), s => setStats(prev => ({ ...prev, words: s.size })));
@@ -898,6 +1097,98 @@ const AdminDashboard = () => {
     }
   };
 
+  const generateUnitPack = async (unit: { id: RoadmapUnitId; title: string; level: any; topics: string[]; prerequisites: RoadmapUnitId[]; masteryThreshold: number; }) => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are a senior English teacher and content creator.
+Create a complete JSON content pack for ONE LMS unit.
+
+UnitId: ${unit.id}
+Level: ${unit.level}
+Title: ${unit.title}
+Topics: ${unit.topics.join(', ')}
+
+Rules:
+- contextText: an English article suitable for the level (approx 180-260 words), include the target grammar naturally.
+- grammarExplanation: detailed explanation in CZECH, friendly tone for a girl named Viktorka.
+- testSuite: 10 multiple-choice questions, each with 4 options, correctAnswer, and Czech explanation "proč".
+- Return ONLY valid JSON and match the requested schema.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            unitId: { type: Type.STRING },
+            level: { type: Type.STRING },
+            title: { type: Type.STRING },
+            topics: { type: Type.ARRAY, items: { type: Type.STRING } },
+            contextText: { type: Type.STRING },
+            grammarExplanation: { type: Type.STRING },
+            testSuite: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  question: { type: Type.STRING },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  correctAnswer: { type: Type.STRING },
+                  explanation: { type: Type.STRING },
+                },
+                required: ['question', 'options', 'correctAnswer', 'explanation'],
+              },
+            },
+            createdAt: { type: Type.STRING },
+            model: { type: Type.STRING },
+          },
+          required: ['unitId', 'level', 'title', 'topics', 'contextText', 'grammarExplanation', 'testSuite', 'createdAt'],
+        },
+      },
+    });
+
+    const parsed = safeJsonParse(response.text || '{}');
+    if (!parsed.ok || !isValidUnitContentPack(parsed.data)) {
+      throw new Error('Invalid unit content pack JSON');
+    }
+    const pack = parsed.data as UnitContentPack;
+    // normalize
+    pack.unitId = unit.id;
+    pack.level = unit.level;
+    pack.title = unit.title;
+    pack.topics = unit.topics;
+    pack.model = pack.model || 'gemini-3-flash-preview';
+    return pack;
+  };
+
+  const fillMissingContent = async (mode: 'a3-first-3' | 'all') => {
+    setFillBusy(true);
+    setFillLog([]);
+    try {
+      const units = mode === 'a3-first-3'
+        ? ROADMAP.filter(u => u.level === 'A3').slice(0, 3)
+        : ROADMAP;
+
+      for (const unit of units) {
+        const unitRef = doc(db, 'units', unit.id);
+        const snap = await getDoc(unitRef);
+        if (snap.exists()) {
+          setFillLog(prev => [...prev, `SKIP ${unit.id} (exists)`]);
+          continue;
+        }
+        setFillLog(prev => [...prev, `GEN  ${unit.id}…`]);
+        const pack = await generateUnitPack(unit as any);
+        await setDoc(unitRef, pack);
+        setFillLog(prev => [...prev, `OK   ${unit.id}`]);
+      }
+
+      alert('Doplnění obsahu dokončeno.');
+    } catch (e) {
+      console.error(e);
+      alert('Chyba při doplňování obsahu (viz konzole).');
+    } finally {
+      setFillBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
@@ -941,6 +1232,38 @@ const AdminDashboard = () => {
       <GrammarTestGenerator />
       <LessonGenerator />
 
+      <Card className="space-y-4 border-amber-100">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="font-bold text-amber-900">AI Content Factory</h3>
+            <p className="text-sm text-gray-600">Doplní chybějící obsah do `units/{'{unitId}'}'` podle `src/roadmap.ts`.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => fillMissingContent('a3-first-3')}
+              disabled={fillBusy || loading}
+            >
+              {fillBusy ? 'Pracuji…' : 'Vygenerovat 1. 3 jednotky A3'}
+            </Button>
+            <Button
+              onClick={() => fillMissingContent('all')}
+              disabled={fillBusy || loading}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {fillBusy ? 'Pracuji…' : 'Doplnit chybějící obsah (vše)'}
+            </Button>
+          </div>
+        </div>
+        {fillLog.length > 0 && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 font-mono text-xs text-amber-900 whitespace-pre-wrap">
+            {fillLog.join('\n')}
+          </div>
+        )}
+      </Card>
+
+      <AIVocabularyGenerator />
+
       <Card className="space-y-4 border-pink-100">
         <div className="flex items-center gap-2 text-pink-600 font-bold">
           <FileJson className="w-5 h-5" />
@@ -961,6 +1284,102 @@ const AdminDashboard = () => {
   );
 };
 
+const AIVocabularyGenerator = () => {
+  const [word, setWord] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const generateAndSave = async () => {
+    const w = word.trim();
+    if (!w) return;
+    setLoading(true);
+    try {
+      const resp = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Return JSON for a single English vocabulary entry for A2 learner.
+Word: "${w}"
+Return fields: word, translation (Czech), category (Family/Food/House/Work/Nature/Other), example (simple A2), level ("A2"), ipa (IPA), definition (simple English), synonyms (array of 3-6).
+Return ONLY valid JSON.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              word: { type: Type.STRING },
+              translation: { type: Type.STRING },
+              category: { type: Type.STRING },
+              example: { type: Type.STRING },
+              level: { type: Type.STRING },
+              ipa: { type: Type.STRING },
+              definition: { type: Type.STRING },
+              synonyms: { type: Type.ARRAY, items: { type: Type.STRING } },
+            },
+            required: ["word", "translation", "category", "level"]
+          }
+        }
+      });
+      const parsed = safeJsonParse(resp.text || '{}');
+      if (!parsed.ok) {
+        alert('AI vrátila nečitelný JSON.');
+        return;
+      }
+      const data = parsed.data as any;
+      const clean: VocabularyWordEnriched = {
+        word: String(data.word || w).trim(),
+        translation: String(data.translation || '').trim(),
+        category: (String(data.category || 'Other').trim() as any),
+        example: data.example ? String(data.example).trim() : '',
+        level: String(data.level || 'A2'),
+        ipa: data.ipa ? String(data.ipa).trim() : '',
+        definition: data.definition ? String(data.definition).trim() : '',
+        synonyms: Array.isArray(data.synonyms) ? data.synonyms.filter((s: any) => typeof s === 'string').slice(0, 10) : [],
+        wordLower: normalizeWord(String(data.word || w)),
+      };
+
+      if (!clean.translation) {
+        alert('AI nevrátila překlad, zkus to prosím znovu.');
+        return;
+      }
+
+      const existing = await getDocs(query(collection(db, 'vocabulary'), where('wordLower', '==', clean.wordLower)));
+      if (!existing.empty) {
+        alert('Tohle slovíčko už v databázi je (duplicitní).');
+        return;
+      }
+
+      await addDoc(collection(db, 'vocabulary'), clean);
+      alert('Slovíčko přidáno!');
+      setWord('');
+    } catch (e) {
+      console.error(e);
+      alert('Chyba při generování/ukládání slovíčka.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="space-y-4 border-emerald-100">
+      <div className="flex items-center gap-2 text-emerald-700 font-bold">
+        <Sparkles className="w-5 h-5" />
+        <h3>AI Přidat slovíčko (enrichment)</h3>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          className="flex-1 px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+          placeholder="Např. 'garden' nebo 'ticket'"
+          value={word}
+          onChange={(e) => setWord(e.target.value)}
+        />
+        <Button onClick={generateAndSave} disabled={loading || !word.trim()} className="bg-emerald-600 hover:bg-emerald-700">
+          {loading ? 'Generuji...' : 'Přidat'}
+        </Button>
+      </div>
+      <p className="text-xs text-gray-500">AI doplní překlad, IPA, definici, synonyma a příkladovou větu. Duplicity blokujeme přes `wordLower`.</p>
+    </Card>
+  );
+};
+
 // --- Main App ---
 
 const WordDetailsModal = ({ word, onClose }: { word: VocabularyWord; onClose: () => void }) => {
@@ -971,10 +1390,17 @@ const WordDetailsModal = ({ word, onClose }: { word: VocabularyWord; onClose: ()
     fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.word}`)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setDetails(data[0]);
+        if (Array.isArray(data)) {
+          setDetails(data[0]);
+        } else {
+          setDetails(null);
+        }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setDetails(null);
+        setLoading(false);
+      });
   }, [word.word]);
 
   return (
@@ -1021,7 +1447,7 @@ const WordDetailsModal = ({ word, onClose }: { word: VocabularyWord; onClose: ()
 };
 
 const TestModule = () => {
-  const { user } = useAuth();
+  const { user, stats } = useAuth();
   const [questions, setQuestions] = useState<any[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [score, setScore] = useState(0);
@@ -1030,9 +1456,10 @@ const TestModule = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Generate a test from vocabulary
-    const q = query(collection(db, 'vocabulary'), where('level', '==', 'A2'));
-    getDocs(q).then(snapshot => {
+    // Fetch all vocabulary and pick a random subset for testing
+    // To handle larger sets smoothly we just get everything once and pick. 
+    // In production we would probably fetch a limited cursor or do random logic.
+    getDocs(collection(db, 'vocabulary')).then(snapshot => {
       const words = snapshot.docs.map(d => d.data() as VocabularyWord);
       if (words.length < 4) {
         setQuestions([]);
@@ -1042,7 +1469,7 @@ const TestModule = () => {
 
       const testQuestions = words.sort(() => 0.5 - Math.random()).slice(0, 10).map(word => {
         const distractors = words
-          .filter(w => w.word !== word.word)
+          .filter(w => w.translation !== word.translation)
           .sort(() => 0.5 - Math.random())
           .slice(0, 3)
           .map(w => w.translation);
@@ -1075,13 +1502,31 @@ const TestModule = () => {
         setShowResult(true);
         // Save result to Firebase
         if (user) {
+          const finalScore = score + (option === questions[currentIdx].a ? 1 : 0);
           await addDoc(collection(db, 'testResults'), {
             studentUid: user.uid,
             testType: 'Vocabulary Quiz',
-            score: score + (option === questions[currentIdx].a ? 1 : 0),
+            score: finalScore,
             total: questions.length,
             timestamp: new Date().toISOString()
           });
+
+          // Gamification: seeds based on performance (min 1 if finished)
+          const ratio = questions.length > 0 ? finalScore / questions.length : 0;
+          const earnedSeeds = seedsFromRatio(ratio);
+          const statsRef = doc(db, 'stats', user.uid);
+          const nextSeeds = (stats?.seeds ?? 0) + earnedSeeds;
+          const flowerGain = Math.floor(nextSeeds / 5) - Math.floor((stats?.seeds ?? 0) / 5);
+          const nextFlowers = (stats?.flowers ?? 0) + Math.max(0, flowerGain);
+          
+          await setDoc(statsRef, {
+            uid: user.uid,
+            seeds: nextSeeds,
+            flowers: nextFlowers,
+            level: stats?.level ?? 'A2',
+            mastery: stats?.mastery ?? {},
+            updatedAt: new Date().toISOString()
+          } satisfies UserStats, { merge: true });
         }
       }
     }, 600);
@@ -1150,10 +1595,101 @@ const TestModule = () => {
   );
 };
 
+const LessonsModule = () => {
+  const { user } = useAuth();
+  const [lessons, setLessons] = useState<AILesson[]>([]);
+  const [selectedLesson, setSelectedLesson] = useState<AILesson | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'lessons'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (s) => {
+      setLessons(s.docs.map(d => ({ id: d.id, ...d.data() } as AILesson)));
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  if (selectedLesson) {
+    return (
+      <div className="space-y-6">
+        <button 
+          onClick={() => setSelectedLesson(null)}
+          className="flex items-center gap-2 text-pink-600 hover:text-pink-700 font-medium transition-colors"
+        >
+          <ChevronRight className="w-5 h-5 rotate-180" />
+          Zpět na seznam příběhů
+        </button>
+
+        <Card className="max-w-4xl mx-auto p-8 lg:p-12">
+          <div className="space-y-2 mb-8 pb-8 border-b border-gray-100 text-center">
+            <h2 className="text-3xl md:text-5xl font-bold text-gray-900">{selectedLesson.topic}</h2>
+            <p className="text-gray-400">Příběh napsaný speciálně pro Viktorku</p>
+          </div>
+          <div className="markdown-body prose prose-pink max-w-none text-lg leading-relaxed text-gray-700">
+            <Markdown>{selectedLesson.content}</Markdown>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-2xl font-bold text-gray-900">Příběhy & Lekce</h2>
+        <p className="text-gray-500 text-sm">Čti si vygenerované AI příběhy speciálně pro tebe.</p>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Načítám příběhy...</div>
+      ) : lessons.length === 0 ? (
+        <Card className="text-center py-12 space-y-4">
+          <BookOpen className="w-12 h-12 text-gray-300 mx-auto" />
+          <p className="text-gray-500">Zatím tu žádné příběhy nejsou. Ale určitě nějaké brzy přibudou!</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {lessons.map(lesson => (
+            <Card 
+              key={lesson.id}
+              className="hover:border-pink-300 hover:shadow-md transition-all cursor-pointer group flex flex-col relative"
+              onClick={() => setSelectedLesson(lesson)}
+            >
+              {user?.role === 'admin' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Opravdu smazat příběh "${lesson.topic}"?`)) {
+                      deleteDoc(doc(db, 'lessons', lesson.id!));
+                    }
+                  }}
+                  className="absolute top-4 right-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10 p-1"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              )}
+              <div className="mb-4 text-pink-500 bg-pink-50 w-12 h-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-pink-600 transition-colors line-clamp-2">
+                {lesson.topic}
+              </h3>
+              <p className="text-sm text-gray-500 mt-auto pt-4 border-t border-gray-50">
+                Přidáno: {new Date(lesson.createdAt).toLocaleDateString()}
+              </p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AppContent = () => {
 
-  const { user, login, logout, loading } = useAuth();
-  const [activeView, setActiveView] = useState<'dashboard' | 'vocab' | 'grammar' | 'tests' | 'admin'>('dashboard');
+  const { user, stats, loginGoogle, loginStudent, loginAdmin, logout, loading } = useAuth();
+  const [activeView, setActiveView] = useState<'dashboard' | 'vocab' | 'grammar' | 'tests' | 'lessons' | 'admin'>('dashboard');
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -1166,18 +1702,25 @@ const AppContent = () => {
       <Card className="max-w-md w-full text-center space-y-8 py-12 border-pink-200 relative overflow-hidden">
         <div className="absolute -top-10 -left-10 text-pink-100 opacity-50"><Flower className="w-32 h-32" /></div>
         <div className="absolute -bottom-10 -right-10 text-pink-100 opacity-50"><Flower className="w-32 h-32" /></div>
-        <div className="space-y-2 relative z-10">
+        <div className="space-y-4 relative z-10">
           <div className="inline-flex p-4 bg-pink-50 rounded-3xl text-pink-600 mb-2">
             <Heart className="w-12 h-12" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Květinová Angličtina</h1>
           <p className="text-gray-500">Vítej zpět, lásko! Přihlas se prosím.</p>
         </div>
-        <Button onClick={login} className="w-full py-4 text-lg relative z-10">
-          Přihlásit se přes Google
-        </Button>
-        <div className="text-xs text-gray-400 relative z-10">
-          Student: vika.mat@seznam.cz | Admin: dragon.systems.venture@gmail.com
+        <div className="space-y-3 relative z-10">
+          <Button onClick={loginGoogle} className="w-full py-3 text-lg bg-pink-500 hover:bg-pink-600 text-white font-bold">
+            Přihlásit se přes Google
+          </Button>
+          <div className="pt-4 border-t border-pink-100 flex gap-2">
+            <Button onClick={loginStudent} variant="secondary" className="flex-1 py-2 text-xs">
+              Dev: Student
+            </Button>
+            <Button onClick={loginAdmin} variant="secondary" className="flex-1 py-2 text-xs">
+              Dev: Admin
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
@@ -1187,6 +1730,7 @@ const AppContent = () => {
     { id: 'dashboard', label: 'Nástěnka', icon: LayoutDashboard, roles: ['admin', 'student'] },
     { id: 'vocab', label: 'Slovíčka', icon: BookOpen, roles: ['admin', 'student'] },
     { id: 'grammar', label: 'Gramatika', icon: BrainCircuit, roles: ['admin', 'student'] },
+    { id: 'lessons', label: 'Příběhy', icon: MessageSquare, roles: ['admin', 'student'] },
     { id: 'tests', label: 'Testy', icon: CheckCircle2, roles: ['admin', 'student'] },
     { id: 'admin', label: 'Admin Panel', icon: Settings, roles: ['admin'] },
   ].filter(item => item.roles.includes(user.role));
@@ -1264,16 +1808,29 @@ const AppContent = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <Card className="bg-pink-500 text-white border-none relative overflow-hidden">
                       <div className="relative z-10 space-y-4">
-                        <h3 className="text-xl font-bold">Denní slovíčka</h3>
-                        <p className="text-pink-100 text-sm">Nauč se dnes 5 nových slovíček z kategorie Příroda.</p>
-                        <Button variant="secondary" onClick={() => setActiveView('vocab')}>Začít se učit</Button>
+                        <h3 className="text-xl font-bold">Čas na příběh</h3>
+                        <p className="text-pink-100 text-sm">Přečti si příběhy a lekce, které pro tebe připravila umělá inteligence.</p>
+                        <Button variant="secondary" onClick={() => setActiveView('lessons')}>Jít číst</Button>
                       </div>
                       <Flower className="absolute -right-4 -bottom-4 w-32 h-32 text-pink-400 opacity-30 rotate-12" />
                     </Card>
                     
                     <Card className="space-y-4 border-pink-100">
                       <h3 className="text-xl font-bold text-gray-900">Tvůj pokrok</h3>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-4 rounded-2xl bg-white border border-gray-100">
+                            <p className="text-xs text-gray-500">Semínka</p>
+                            <p className="text-2xl font-bold text-emerald-600">{stats?.seeds ?? 0}</p>
+                            <p className="text-[11px] text-gray-400">Každých 5 = 1 květina</p>
+                          </div>
+                          <div className="p-4 rounded-2xl bg-white border border-gray-100">
+                            <p className="text-xs text-gray-500">Květiny</p>
+                            <p className="text-2xl font-bold text-pink-600">{stats?.flowers ?? 0}</p>
+                            <p className="text-[11px] text-gray-400">Tvoje zahrada</p>
+                          </div>
+                        </div>
+                        {stats && <GardenDisplay stats={stats} />}
                         <div>
                           <div className="flex justify-between text-xs mb-1">
                             <span className="text-gray-500">Slovíčka</span>
@@ -1299,6 +1856,7 @@ const AppContent = () => {
               )}
               {activeView === 'vocab' && <VocabularyModule />}
               {activeView === 'grammar' && <GrammarModule />}
+              {activeView === 'lessons' && <LessonsModule />}
               {activeView === 'admin' && <AdminDashboard />}
               {activeView === 'tests' && <TestModule />}
             </motion.div>
@@ -1343,45 +1901,68 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 export default function App() {
 
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (firebaseUser) => {
       console.log("Auth state changed:", firebaseUser?.email);
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            console.log("User doc found:", userDoc.data());
-            setUser(userDoc.data() as UserProfile);
-          } else {
-            console.log("User doc not found, creating...");
-            // Determine role based on email
-            const role: UserRole = 
-              firebaseUser.email === 'dragon.systems.venture@gmail.com' ? 'admin' : 'student';
-            
-            const newUser: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              role,
-              displayName: firebaseUser.displayName || ''
-            };
-            await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
-            console.log("User doc created:", newUser);
-            setUser(newUser);
-          }
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-          // Even if firestore fails, we might want to let them in with a basic profile
-          // but for security we should probably show an error
-          alert("Chyba při načítání profilu. Zkuste to prosím znovu.");
-        }
-      } else {
+      if (!firebaseUser) {
         setUser(null);
+        setStats(null);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+      try {
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        if (userDoc.exists()) {
+          setUser(userDoc.data() as UserProfile);
+        } else {
+          const role: UserRole =
+            firebaseUser.email === 'dragon.systems.venture@gmail.com' ? 'admin' : 'student';
+          const newUser: UserProfile = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            role,
+            displayName: firebaseUser.displayName || ''
+          };
+          await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+          setUser(newUser);
+        }
+
+        // Ensure stats doc exists (initial read)
+        const statsRef = doc(db, 'stats', firebaseUser.uid);
+        const statsSnap = await getDoc(statsRef);
+        if (statsSnap.exists()) {
+          setStats(statsSnap.data() as UserStats);
+        } else {
+          const initial: UserStats = {
+            uid: firebaseUser.uid,
+            seeds: 0,
+            flowers: 0,
+            level: 'A2',
+            mastery: {},
+            updatedAt: new Date().toISOString(),
+          };
+          await setDoc(statsRef, initial);
+          setStats(initial);
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
+        alert("Chyba při načítání profilu. Zkuste to prosím znovu.");
+      } finally {
+        setLoading(false);
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const statsRef = doc(db, 'stats', user.uid);
+    return onSnapshot(statsRef, (s) => {
+      if (s.exists()) setStats(s.data() as UserStats);
+    });
+  }, [user?.uid]);
 
   useEffect(() => {
     const checkInitialData = async () => {
@@ -1402,13 +1983,70 @@ export default function App() {
     checkInitialData();
   }, []);
 
-  const login = async () => {
+  const devLogin = async (devUser: UserProfile) => {
+    // Nastav uživatele v UI vždy, i když Firestore selže.
+    setUser(devUser);
 
+    try {
+      const userRef = doc(db, 'users', devUser.uid);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: devUser.uid,
+          email: devUser.email || '',
+          role: devUser.role,
+          displayName: devUser.displayName || '',
+        });
+      }
+
+      const statsRef = doc(db, 'stats', devUser.uid);
+      const statsSnap = await getDoc(statsRef);
+      if (statsSnap.exists()) {
+        setStats(statsSnap.data() as UserStats);
+      } else {
+        const initial: UserStats = {
+          uid: devUser.uid,
+          seeds: 0,
+          flowers: 0,
+          level: 'A2',
+          mastery: {},
+          updatedAt: new Date().toISOString(),
+        };
+        await setDoc(statsRef, initial, { merge: true });
+        setStats(initial);
+      }
+    } catch (e) {
+      console.warn('Dev login: Firestore unavailable (OK for local dev).', e);
+    }
+  };
+
+  const loginGoogle = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (e) {
-      console.error(e);
+      console.error("Google sign in error", e);
+      alert('Chyba při přihlašování přes Google.');
     }
+  };
+
+  const loginStudent = async () => {
+    const devUser: UserProfile = {
+      uid: 'dev-student-id',
+      email: 'vika.mat@seznam.cz',
+      role: 'student',
+      displayName: 'Viktorka (Dev)',
+    };
+    await devLogin(devUser);
+  };
+
+  const loginAdmin = async () => {
+    const devUser: UserProfile = {
+      uid: 'dev-admin-id',
+      email: 'dragon.systems.venture@gmail.com',
+      role: 'admin',
+      displayName: 'Admin (Dev)',
+    };
+    await devLogin(devUser);
   };
 
   const logout = async () => {
@@ -1417,11 +2055,13 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+    setUser(null);
+    setStats(null);
   };
 
   return (
     <ErrorBoundary>
-      <AuthContext.Provider value={{ user, loading, login, logout }}>
+      <AuthContext.Provider value={{ user, stats, loading, loginGoogle, loginStudent, loginAdmin, logout }}>
         <AppContent />
       </AuthContext.Provider>
     </ErrorBoundary>

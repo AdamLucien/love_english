@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "sqlite": {
+      "command": "/Users/adamkarllucien/.local/bin/uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "/Users/adamkarllucien/Downloads/viktorky-květinová-angličtina/dev.sqlite"
+      ]
+    }
+  }
+}
+

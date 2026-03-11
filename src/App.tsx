@@ -323,10 +323,17 @@ const VocabularyModule = () => {
 
 const GrammarModule = () => {
   const [view, setView] = useState<'practice' | 'ai-tests'>('practice');
-  const [activeTab, setActiveTab] = useState<'be-have' | 'do-does' | 'modals' | 'state-dynamic'>('be-have');
+  const [activeTab, setActiveTab] = useState<'a1-be' | 'be-have' | 'do-does' | 'modals' | 'state-dynamic'>('a1-be');
   const { stats, user } = useAuth();
 
   const exercises = {
+    'a1-be': [
+      { q: "___ you a student?", a: "Are", options: ["Am", "Is", "Are"] },
+      { q: "She ___ from Prague.", a: "is", options: ["am", "is", "are"] },
+      { q: "I ___ happy today.", a: "am", options: ["am", "is", "are"] },
+      { q: "They ___ my friends.", a: "are", options: ["am", "is", "are"] },
+      { q: "He ___ not tired.", a: "is", options: ["am", "is", "are"] },
+    ],
     'be-have': [
       { q: "I ___ a big family.", a: "have", options: ["am", "have", "has"] },
       { q: "She ___ very happy today.", a: "is", options: ["is", "has", "am"] },
@@ -411,6 +418,7 @@ const GrammarModule = () => {
         <div className="space-y-6">
           <div className="flex overflow-x-auto pb-2 gap-2">
             {[
+              { id: 'a1-be', label: '🌱 A1: Být (am/is/are)' },
               { id: 'be-have', label: 'Být & Mít' },
               { id: 'do-does', label: 'Do & Does' },
               { id: 'modals', label: 'Modální slovesa' },

@@ -1,6 +1,18 @@
 import type { CefrLevel, UserStats } from './types';
 
 export type RoadmapUnitId =
+  // A1
+  | 'a1-greetings-introductions'
+  | 'a1-present-simple-be'
+  | 'a1-numbers-dates'
+  | 'a1-articles-nouns'
+  | 'a1-basic-questions'
+  // A2
+  | 'a2-present-simple-all'
+  | 'a2-present-continuous'
+  | 'a2-past-simple-regular'
+  | 'a2-there-is-there-are'
+  | 'a2-prepositions'
   // A3
   | 'a3-past-simple-vs-continuous'
   | 'a3-present-perfect-intro'
@@ -38,11 +50,94 @@ export interface RoadmapUnit {
 }
 
 export const ROADMAP: RoadmapUnit[] = [
+  // ── A1 ──────────────────────────────────────────────────────────
+  {
+    id: 'a1-greetings-introductions',
+    title: 'Pozdravy a představení',
+    level: 'A1',
+    prerequisites: [],
+    masteryThreshold: 0.7,
+    topics: ['Hello / Goodbye', 'My name is…', 'How are you?', 'Nice to meet you'],
+  },
+  {
+    id: 'a1-present-simple-be',
+    title: 'Sloveso BE (am/is/are)',
+    level: 'A1',
+    prerequisites: ['a1-greetings-introductions'],
+    masteryThreshold: 0.7,
+    topics: ['I am', 'He/She/It is', 'We/You/They are', 'Negation', 'Questions'],
+  },
+  {
+    id: 'a1-numbers-dates',
+    title: 'Čísla a data',
+    level: 'A1',
+    prerequisites: ['a1-present-simple-be'],
+    masteryThreshold: 0.7,
+    topics: ['Numbers 1–100', 'Ordinal numbers', 'Days of the week', 'Months', 'Dates'],
+  },
+  {
+    id: 'a1-articles-nouns',
+    title: 'Členy a podstatná jména',
+    level: 'A1',
+    prerequisites: ['a1-numbers-dates'],
+    masteryThreshold: 0.7,
+    topics: ['a / an', 'the', 'no article', 'singular / plural', 'countable vs uncountable'],
+  },
+  {
+    id: 'a1-basic-questions',
+    title: 'Základní otázky (What/Where/Who)',
+    level: 'A1',
+    prerequisites: ['a1-articles-nouns'],
+    masteryThreshold: 0.7,
+    topics: ['What is…?', 'Where is…?', 'Who is…?', 'How old…?', 'Yes/No questions'],
+  },
+  // ── A2 ──────────────────────────────────────────────────────────
+  {
+    id: 'a2-present-simple-all',
+    title: 'Present Simple (všechny osoby)',
+    level: 'A2',
+    prerequisites: ['a1-basic-questions'],
+    masteryThreshold: 0.8,
+    topics: ['I/You/We/They do', 'He/She/It does', 'Do/Does questions', 'don\'t / doesn\'t'],
+  },
+  {
+    id: 'a2-present-continuous',
+    title: 'Present Continuous',
+    level: 'A2',
+    prerequisites: ['a2-present-simple-all'],
+    masteryThreshold: 0.8,
+    topics: ['am/is/are + -ing', 'Now vs usually', 'Spelling -ing', 'Questions & negation'],
+  },
+  {
+    id: 'a2-past-simple-regular',
+    title: 'Past Simple (pravidelná slovesa)',
+    level: 'A2',
+    prerequisites: ['a2-present-continuous'],
+    masteryThreshold: 0.8,
+    topics: ['Regular verbs + -ed', 'Did / didn\'t', 'Time expressions', 'Common irregular verbs'],
+  },
+  {
+    id: 'a2-there-is-there-are',
+    title: 'There is / There are',
+    level: 'A2',
+    prerequisites: ['a2-past-simple-regular'],
+    masteryThreshold: 0.8,
+    topics: ['There is/are', 'There was/were', 'some/any', 'How many/much'],
+  },
+  {
+    id: 'a2-prepositions',
+    title: 'Předložky (in/on/at/next to…)',
+    level: 'A2',
+    prerequisites: ['a2-there-is-there-are'],
+    masteryThreshold: 0.8,
+    topics: ['Prepositions of place', 'Prepositions of time', 'in/on/at', 'next to/behind/opposite'],
+  },
+  // ── A3 ──────────────────────────────────────────────────────────
   {
     id: 'a3-past-simple-vs-continuous',
     title: 'Past Simple vs. Past Continuous',
     level: 'A3',
-    prerequisites: [],
+    prerequisites: ['a2-prepositions'],
     masteryThreshold: 0.85,
     topics: ['Past Simple', 'Past Continuous', 'Time expressions', 'Story telling'],
   },
@@ -233,11 +328,15 @@ export function computeLevelFromMastery(stats: UserStats | null): CefrLevel {
   const b2Ok = m('b2-modals-in-the-past') >= 0.85;
   const b1Ok = m('b1-passive-voice-basic') >= 0.85;
   const a3Ok = m('a3-modal-verbs-basic') >= 0.85;
+  const a2Ok = m('a2-prepositions') >= 0.8;
+  const a1Ok = m('a1-basic-questions') >= 0.7;
   if (c1Ok) return 'C1';
   if (b2Ok) return 'B2';
   if (b1Ok) return 'B1';
   if (a3Ok) return 'A3';
-  return 'A2';
+  if (a2Ok) return 'A2';
+  if (a1Ok) return 'A1';
+  return 'A1';
 }
 
 export function getUnitById(id: RoadmapUnitId) {

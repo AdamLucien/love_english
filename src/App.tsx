@@ -1120,10 +1120,10 @@ Title: ${unit.title}
 Topics: ${unit.topics.join(', ')}
 
 Rules:
-- contextText: an English article suitable for the level (approx 180-260 words), include the target grammar naturally.
-- grammarExplanation: detailed explanation in CZECH, friendly tone for a girl named Viktorka.
-- testSuite: 10 multiple-choice questions, each with 4 options, correctAnswer, and Czech explanation "proč".
-- Return ONLY valid JSON and match the requested schema.`,
+- contextText: MUST contain an English reading article suitable for the level (approx 180-260 words). Do NOT leave this empty! Incorporate the target grammar naturally.
+- grammarExplanation: MUST contain a detailed explanation in CZECH, friendly tone for a girl named Viktorka. Do NOT leave this empty!
+- testSuite: exactly 10 multiple-choice questions, each with 4 options, correctAnswer, and Czech explanation "proč".
+- Return ONLY valid JSON strictly matching the requested schema. Do not use markdown blocks around the JSON string.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -1861,24 +1861,6 @@ const AppContent = () => {
                           </div>
                         </div>
                         {stats && <GardenDisplay stats={stats} />}
-                        <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-gray-500">Slovíčka</span>
-                            <span className="font-bold">45%</span>
-                          </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-pink-500 w-[45%]" />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-gray-500">Gramatika</span>
-                            <span className="font-bold">72%</span>
-                          </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-400 w-[72%]" />
-                          </div>
-                        </div>
                       </div>
                     </Card>
                   </div>
@@ -2009,7 +1991,14 @@ export default function App() {
     if (!user?.uid) return;
     const statsRef = doc(db, 'stats', user.uid);
     return onSnapshot(statsRef, (s) => {
-      if (s.exists()) setStats(s.data() as UserStats);
+      if (s.exists()) {
+        const data = s.data() as UserStats;
+        const computedLevel = computeLevelFromMastery(data);
+        if (data.level !== computedLevel) {
+          data.level = computedLevel;
+        }
+        setStats(data);
+      }
     });
   }, [user?.uid]);
 

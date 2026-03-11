@@ -52,12 +52,12 @@ export function UnitPlayer({
         <div className="markdown-body">
           <div className="p-5 rounded-2xl bg-gray-50 border border-gray-100">
             <p className="text-sm font-bold text-gray-700 mb-2">Context Text (EN)</p>
-            <Markdown>{content.contextText}</Markdown>
+            <Markdown>{content.contextText || '*Pardon, umělá inteligence při generování textu udělala chybu a zapomněla ho napsat. Zkus to vygenerovat znovu!*'}</Markdown>
           </div>
 
           <div className="mt-5 p-5 rounded-2xl bg-blue-50 border border-blue-100">
             <p className="text-sm font-bold text-blue-900 mb-2">Gramatické okénko (CZ)</p>
-            <Markdown>{content.grammarExplanation}</Markdown>
+            <Markdown>{content.grammarExplanation || '*Vysvětlení gramatiky bohužel chybí.*'}</Markdown>
           </div>
         </div>
 

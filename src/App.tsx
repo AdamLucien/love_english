@@ -975,7 +975,10 @@ const GrammarTestList = () => {
                 ? (test.roadmapUnitId as RoadmapUnitId)
                 : null;
               const unitDef = unit ? ROADMAP.find(u => u.id === unit) : null;
-              const unlocked = user?.role === 'admin' || !unitDef ? true : isUnitUnlocked(stats, unitDef);
+              const levelOrder = ['A1', 'A2', 'A3', 'B1', 'B2', 'C1'];
+              const studentLevelIdx = levelOrder.indexOf(stats?.level || 'A1');
+              const testLevelIdx = levelOrder.indexOf(test.level || 'A1');
+              const unlocked = user?.role === 'admin' || testLevelIdx <= studentLevelIdx || !unitDef;
               return (
                 <Card
                   key={test.id}

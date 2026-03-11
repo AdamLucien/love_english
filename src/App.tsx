@@ -611,7 +611,7 @@ const LessonGenerator = () => {
 
 const GrammarTestGenerator = () => {
   const [topic, setTopic] = useState('');
-  const [level, setLevel] = useState('A2');
+  const [level, setLevel] = useState('A1');
   const [unitId, setUnitId] = useState<RoadmapUnitId>('a3-past-simple-vs-continuous');
   const [loading, setLoading] = useState(false);
   const [generatedTest, setGeneratedTest] = useState<GrammarTest | null>(null);
@@ -828,7 +828,7 @@ const GrammarTestPlayer = ({ test, onComplete }: { test: GrammarTest; onComplete
           const nextSeeds = (stats?.seeds ?? 0) + earnedSeeds;
           const flowerGain = Math.floor(nextSeeds / 5) - Math.floor((stats?.seeds ?? 0) / 5);
           const nextFlowers = (stats?.flowers ?? 0) + Math.max(0, flowerGain);
-          const nextLevel = computeLevelFromMastery({ ...(stats ?? { uid: user.uid, seeds: 0, flowers: 0, level: 'A2', updatedAt: '' }), mastery: nextMasteryMap } as any);
+          const nextLevel = computeLevelFromMastery({ ...(stats ?? { uid: user.uid, seeds: 0, flowers: 0, level: 'A1', updatedAt: '' }), mastery: nextMasteryMap } as any);
 
           await setDoc(statsRef, {
             uid: user.uid,
@@ -1069,7 +1069,7 @@ const AdminDashboard = () => {
             translation: String(word.translation).trim(),
             category: word.category ? String(word.category).trim() : 'Other',
             example: word.example ? String(word.example).trim() : '',
-            level: word.level ? String(word.level).trim() : 'A2'
+            level: word.level ? String(word.level).trim() : 'A1'
           };
           
           batch.set(docRef, cleanWord);
@@ -1339,7 +1339,7 @@ Return ONLY valid JSON.`,
         translation: String(data.translation || '').trim(),
         category: (String(data.category || 'Other').trim() as any),
         example: data.example ? String(data.example).trim() : '',
-        level: String(data.level || 'A2'),
+        level: String(data.level || 'A1'),
         ipa: data.ipa ? String(data.ipa).trim() : '',
         definition: data.definition ? String(data.definition).trim() : '',
         synonyms: Array.isArray(data.synonyms) ? data.synonyms.filter((s: any) => typeof s === 'string').slice(0, 10) : [],
@@ -1534,7 +1534,7 @@ const TestModule = () => {
             uid: user.uid,
             seeds: nextSeeds,
             flowers: nextFlowers,
-            level: stats?.level ?? 'A2',
+            level: stats?.level ?? 'A1',
             mastery: stats?.mastery ?? {},
             updatedAt: new Date().toISOString()
           } satisfies UserStats, { merge: true });
@@ -1749,7 +1749,7 @@ const AppContent = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* Sidebar */}
-      <aside className="w-full md:w-64 bg-white border-r border-black/5 flex flex-col relative overflow-hidden">
+      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-black/5 relative overflow-hidden">
         <div className="absolute -bottom-10 -left-10 text-pink-50 opacity-20 pointer-events-none"><Flower className="w-40 h-40" /></div>
         <div className="p-6 flex items-center gap-3 border-b border-black/5 relative z-10">
           <div className="bg-pink-500 p-2 rounded-lg text-white">
@@ -1796,8 +1796,27 @@ const AppContent = () => {
         </div>
       </aside>
 
+      {/* Mobile Top Header */}
+      <header className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-2">
+          <div className="bg-pink-500 p-1.5 rounded-lg text-white">
+            <Flower className="w-5 h-5" />
+          </div>
+          <span className="font-bold text-lg tracking-tight text-pink-600">Květinový Portál</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right flex flex-col items-end">
+            <span className="text-[10px] text-gray-400 uppercase tracking-widest leading-none mb-0.5">{user.role}</span>
+            <span className="text-xs font-bold text-gray-900 leading-none">{user.displayName || 'Uživatel'}</span>
+          </div>
+          <button onClick={logout} className="text-gray-400 hover:text-red-500 transition-colors">
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+      </header>
+
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
@@ -1874,6 +1893,25 @@ const AppContent = () => {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around p-2 z-50 pb-safe">
+        {menuItems.map(item => (
+          <button
+            key={item.id}
+            onClick={() => setActiveView(item.id as any)}
+            className={cn(
+              "flex flex-col items-center justify-center p-2 rounded-xl transition-all min-w-[64px]",
+              activeView === item.id 
+                ? "text-pink-600" 
+                : "text-gray-400 hover:text-pink-500 hover:bg-pink-50"
+            )}
+          >
+            <item.icon className="w-6 h-6 mb-1" />
+            <span className="text-[10px] font-medium">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 };
@@ -1951,7 +1989,7 @@ export default function App() {
             uid: firebaseUser.uid,
             seeds: 0,
             flowers: 0,
-            level: 'A2',
+            level: 'A1',
             mastery: {},
             updatedAt: new Date().toISOString(),
           };
@@ -1980,11 +2018,11 @@ export default function App() {
       const snapshot = await getDocs(collection(db, 'vocabulary'));
       if (snapshot.empty) {
         const initialWords = [
-          { word: 'Mother', translation: 'Matka', category: 'Family', level: 'A2', example: 'My mother is a doctor.' },
-          { word: 'Bread', translation: 'Chléb', category: 'Food', level: 'A2', example: 'I buy fresh bread every morning.' },
-          { word: 'Kitchen', translation: 'Kuchyně', category: 'House', level: 'A2', example: 'We cook in the kitchen.' },
-          { word: 'Office', translation: 'Kancelář', category: 'Work', level: 'A2', example: 'He works in a modern office.' },
-          { word: 'Tree', translation: 'Strom', category: 'Nature', level: 'A2', example: 'There is a big tree in the garden.' },
+          { word: 'Mother', translation: 'Matka', category: 'Family', level: 'A1', example: 'My mother is a doctor.' },
+          { word: 'Bread', translation: 'Chléb', category: 'Food', level: 'A1', example: 'I buy fresh bread every morning.' },
+          { word: 'Kitchen', translation: 'Kuchyně', category: 'House', level: 'A1', example: 'We cook in the kitchen.' },
+          { word: 'Office', translation: 'Kancelář', category: 'Work', level: 'A1', example: 'He works in a modern office.' },
+          { word: 'Tree', translation: 'Strom', category: 'Nature', level: 'A1', example: 'There is a big tree in the garden.' },
         ];
         for (const w of initialWords) {
           await addDoc(collection(db, 'vocabulary'), w);
@@ -2019,7 +2057,7 @@ export default function App() {
           uid: devUser.uid,
           seeds: 0,
           flowers: 0,
-          level: 'A2',
+          level: 'A1',
           mastery: {},
           updatedAt: new Date().toISOString(),
         };

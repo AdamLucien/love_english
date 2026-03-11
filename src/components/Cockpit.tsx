@@ -106,8 +106,11 @@ export function Cockpit({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr_320px] gap-4">
-      {/* Sidebar */}
-      <aside className="lg:sticky lg:top-6 h-fit rounded-3xl border border-white/20 bg-white/10 backdrop-blur-md shadow-sm overflow-hidden">
+      {/* Sidebar (Roadmap) */}
+      <aside className={cn(
+        "lg:sticky lg:top-6 h-fit rounded-3xl border border-white/20 bg-white/10 backdrop-blur-md shadow-sm overflow-hidden",
+        activeUnitId ? 'hidden lg:block' : 'block'
+      )}>
         <div className="p-5 border-b border-white/20">
           <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Roadmap</p>
           <p className="text-lg font-bold text-gray-900">Pilotní plán</p>
@@ -165,7 +168,10 @@ export function Cockpit({
       </aside>
 
       {/* Command Center */}
-      <section className="rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden">
+      <section className={cn(
+        "rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden",
+        !activeUnitId ? 'hidden lg:block' : 'block'
+      )}>
         <div className="p-5 border-b border-black/5 flex items-center justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Command Center</p>
@@ -276,7 +282,10 @@ export function Cockpit({
       </section>
 
       {/* History */}
-      <aside className="lg:sticky lg:top-6 h-fit rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden">
+      <aside className={cn(
+        "lg:sticky lg:top-6 h-fit rounded-3xl border border-black/5 bg-white shadow-sm overflow-hidden",
+        !activeUnitId ? 'hidden lg:block' : 'block'
+      )}>
         <div className="p-5 border-b border-black/5">
           <p className="text-xs font-bold uppercase tracking-widest text-gray-400">History & Stats</p>
           <p className="text-lg font-bold text-gray-900">Letový deník</p>

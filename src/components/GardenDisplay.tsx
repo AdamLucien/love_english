@@ -23,7 +23,7 @@ export function GardenDisplay({ stats }: { stats: UserStats }) {
   const toNext = 5 - progress;
 
   return (
-    <div className="p-6 bg-white rounded-2xl shadow-sm border border-pink-100">
+    <div className="p-4 sm:p-6 bg-white rounded-2xl shadow-sm border border-pink-100">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Moje zahrada</h2>

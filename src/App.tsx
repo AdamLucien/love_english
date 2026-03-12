@@ -57,6 +57,7 @@ import Markdown from 'react-markdown';
 import { GardenDisplay } from './components/GardenDisplay';
 import { UnitPlayer } from './components/UnitPlayer';
 import { Cockpit } from './components/Cockpit';
+import { fireFlowerConfetti } from './confetti';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -377,6 +378,7 @@ const GrammarModule = () => {
         setSelected(null);
       } else {
         setShowResult(true);
+        fireFlowerConfetti(); // Call confetti here
       }
     }, 600);
   };
@@ -387,6 +389,12 @@ const GrammarModule = () => {
     setShowResult(false);
     setSelected(null);
   };
+
+  useEffect(() => {
+    if (showResult) {
+      fireFlowerConfetti();
+    }
+  }, [showResult]);
 
   return (
     <div className="space-y-6">
@@ -803,6 +811,7 @@ const GrammarTestPlayer = ({ test, onComplete }: { test: GrammarTest; onComplete
         setSelected(null);
       } else {
         setShowResult(true);
+        fireFlowerConfetti(); // Call confetti here
         if (user) {
           const finalScore = score + (isCorrect ? 1 : 0);
           await addDoc(collection(db, 'testResults'), {
@@ -842,6 +851,12 @@ const GrammarTestPlayer = ({ test, onComplete }: { test: GrammarTest; onComplete
       }
     }, 1500); // Longer delay to read explanation if needed
   };
+
+  useEffect(() => {
+    if (showResult) {
+      fireFlowerConfetti();
+    }
+  }, [showResult]);
 
   if (showResult) {
     return (
@@ -1836,17 +1851,17 @@ const AppContent = () => {
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="bg-pink-500 text-white border-none relative overflow-hidden">
+                    <Card className="bg-pink-500 text-white border-none relative overflow-hidden order-last md:order-first shadow-xl shadow-pink-200">
                       <div className="relative z-10 space-y-4">
                         <h3 className="text-xl font-bold">Čas na příběh</h3>
                         <p className="text-pink-100 text-sm">Přečti si příběhy a lekce, které pro tebe připravila umělá inteligence.</p>
-                        <Button variant="secondary" onClick={() => setActiveView('lessons')}>Jít číst</Button>
+                        <Button variant="secondary" onClick={() => setActiveView('lessons')} className="bg-white text-pink-600 hover:bg-pink-50 border-none shadow-sm font-bold text-lg py-6 w-full md:w-auto">Jít číst</Button>
                       </div>
                       <Flower className="absolute -right-4 -bottom-4 w-32 h-32 text-pink-400 opacity-30 rotate-12" />
                     </Card>
                     
-                    <Card className="space-y-4 border-pink-100">
-                      <h3 className="text-xl font-bold text-gray-900">Tvůj pokrok</h3>
+                    <Card className="space-y-4 border-pink-100 order-first md:order-last shadow-lg bg-gradient-to-br from-white to-pink-50/50">
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2"><Sparkles className="w-5 h-5 text-pink-500" /> Tvůj pokrok</h3>
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
                           <div className="p-4 rounded-2xl bg-white border border-gray-100">

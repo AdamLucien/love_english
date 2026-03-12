@@ -545,13 +545,14 @@ const LessonGenerator = () => {
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Generate a short English lesson for A2 level students about "${topic}". 
-        The student is a girl named Viktorka, address her affectionately in Czech in the introduction and conclusion.
-        Include: 
-        1. A short text (5-7 sentences).
-        2. 5 key vocabulary words with translations to Czech.
-        3. 3 comprehension questions.
-        Format as Markdown.`,
+        contents: `Vygeneruj krátkou lekci angličtiny pro úroveň A2 na téma "${topic}".
+        Studentka je dívka jménem Viktorka. Oslovení na začátku a rozloučení na konci musí být velmi vřelé a milé, psané česky (např. "Ahoj Viktorko! 👋...", "Měj se krásně...").
+        Lekce musí obsahovat tyto části formátované v Markdownu:
+        1. Nadpis lekce v angličtině (např. 🛏️ Lesson: ...).
+        2. Anglický text příběhu (5-7 vět). Doplň pod něj rovnou i celý český překlad.
+        3. "💡 Key Vocabulary": 5 klíčových slovíček s českým překladem.
+        4. "🧐 Comprehension Questions": 3 kontrolní otázky v angličtině.
+        Nezapomeň na hezké české povzbuzení na konec.`,
       });
       setLesson(response.text || 'Nepodařilo se vygenerovat lekci.');
     } catch (e) {
